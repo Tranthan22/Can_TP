@@ -1,78 +1,117 @@
 import can
 import copy
 import time
-from Common import I_PDU, N_PDU
+import threading
+from typing import List
+from PDUs import PDU_App_T, PDU_App_R
+from Common import I_PDU, N_PDU, FS_t, Connection_Stage
 from Can_LL import Bus
+ 
  
 """ ===========================================================================================
 Module              : Can_TP
 Brief               : Main module for Can-TP
 =========================================================================================== """
+class Can_TP_Config:
+    def __init__(self, BS = 5, STmin = 0.01):
+        self.BS = BS
+        self.STmin = STmin
+ 
+class Can_TP_Connection:
+    def __init__(self, connectionID):
+        self.TP_Config = Can_TP_Config()
+        self.connectionID = connectionID
+        self.transmiting = False
+        self.receiving = False
+        self.sequence = 0
+        self.index = 0
+        self.stage : Connection_Stage = Connection_Stage.UNKNOW_STATE
+ 
 class Can_TP:
     ''' Constructor '''
     def __init__(self):
-        self.BS = 5
-        self.STmin = 1
- 
         self.LL_bus = Bus()
-        self.transmitState = Can_TP_Transmit_State()
-        self.receiveState = Can_TP_Receive_State()
-        self.TP_transmit = TP_Transmit(self.LL_bus)
-        self.TP_receive = TP_Receive(self.TP_transmit, self.BS, self.STmin)
+        self.connections_T : List[Can_TP_Connection] = []
+        self.connections_R : List[Can_TP_Connection] = []
+        self.TP_transmit = TP_Transmit(self.LL_bus, self.connections_T)
+        self.TP_receive = TP_Receive(self.connections_R)
+        self.main_thread = None
  
     ''' Destructor '''
     def __del__(self):
         print("Destructor: CanTP")
-        # pass
  
     def init(self):
         # Init Can LL
         self.LL_bus.init()
+        self.main_thread = threading.Thread(target=self.TP_transmit.Main_Fuction)
+        self.main_thread.daemon = True
+        self.main_thread.start()
  
+    # Register handle and enable listening
     def startListen(self):
         self.LL_bus.startListen(self.TP_receive)
-        self.receiveState.receiving = True
    
+    # Create sending request
     def transmitMessage(self, I_PDU : I_PDU):
-        self.LL_bus.stopListen()
+        self.TP_transmit.transmit(I_PDU)
  
-        # Send SF
-        if I_PDU.SDULength() <= 7 or (I_PDU.SDULength() <= 62 and I_PDU.is_FD == True):
-            self.TP_transmit.transmitSF(I_PDU)
-       
-        # Send Segmentation
-        else:
-            self.TP_transmit.transmitFF(I_PDU, self.transmitState)
  
-            while self.transmitState.transmiting is True:
-                self.TP_transmit.transmitCF(I_PDU, self.transmitState)
-                time.sleep(0.01)
- 
-        if self.receiveState.receiving is True:
-            self.LL_bus.startListen(self.TP_receive)
  
 """ ===========================================================================================
 Module              : TP_Transmit
 Brief               : Module provides method for handling transmiting operation
                     of Can-TP layer
 ============================================================================================"""
-class Can_TP_Transmit_State:
-        def __init__(self):
-            self.transmiting = False
-            self.sequence = 0
-            self.index = 0
- 
 class TP_Transmit:
     ''' Constructor '''
-    def __init__(self, bus : Bus):
+    def __init__(self, bus : Bus, connections_T : List[Can_TP_Connection]):
         # print("Constructor: CanTP Transmit")
         self.bus = bus
+        self.connections_T = connections_T
  
     ''' Destructor '''
     def __del__(self):
         # print("Destructor: CanTP Transmit")
         pass
+   
+    """ Create request to send """
+    def transmit(self, I_PDU : I_PDU):
+        self.connections_T.append( Can_TP_Connection(I_PDU.ID))
+       
+    """ Transmit mainfunction periodically works """
+    def Main_Fuction(self):
+        global PDU_App_T
+        while 1:
+            connectionsAtTime = copy.deepcopy(self.connections_T)
+            # Operate with every connection
+            for connection in connectionsAtTime:
+                # Finding the PDU which the connection works with
+                for pdu in PDU_App_T:
+                    if connection.connectionID == pdu.ID:
+                        # Send SF
+                        if pdu.SDULength() <= 7 or (pdu.SDULength() <= 62 and pdu.is_FD == True):
+                            self.transmitSF(pdu)
  
+                        # Send Segmentation
+                        else:
+                            self.transmitFF(pdu, connection)
+                            while connection.transmiting is True:
+                                if connection.stage != Connection_Stage.SENDING_CF_CONTINOUS:
+                                    self.transmitCF(pdu, connection)
+                                    time.sleep(connection.TP_Config.STmin)
+                        break
+           
+            # Remove refesh requests
+            if len(connectionsAtTime) == len(self.connections_T):
+                self.connections_T.clear()
+            else:
+                for i in range(len(connectionsAtTime)):
+                    # Remove some completed request
+                    if connectionsAtTime[i] != self.connections_T[i]:
+                        self.connections_T = self.connections_T[i:]
+            time.sleep(2)
+           
     # Send SINGLE FRAME
     def transmitSF(self, I_PDU : I_PDU):
         SDULength = I_PDU.SDULength()
@@ -86,84 +125,83 @@ class TP_Transmit:
  
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
+        print("sent SF")
  
     # Send FIRST FRAME
-    def transmitFF(self, I_PDU : I_PDU, state : Can_TP_Transmit_State):
+    def transmitFF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
         SDULength = I_PDU.SDULength()
         N_PDU = copy.deepcopy(I_PDU)
-        state.transmiting = True
  
         if(I_PDU.is_FD is not True):
             # Classical Can
             N_PCI = [(0x01 << 4 | (SDULength >> 8)), (SDULength & 0xFF)]
             N_SDU = I_PDU.SDU[:6]
-            state.index = 13
+            connection.index = 13
         else:
             # Can FD
             N_PCI = [(0x01 << 4), 0x00, (SDULength >> 24 & 0xFF),(SDULength >> 16 & 0xFF), (SDULength >> 8 & 0xFF), (SDULength & 0xFF)]
             N_SDU = I_PDU.SDU[:58]              # 64 - 6 PCI bytes
-            state.index = 121
+            connection.index = 121
        
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
+        print("sent FF")
+        connection.stage = Connection_Stage.SENT_FF
+        connection.transmiting = True
        
     # Send CONSECUTIVE FRAME
-    def transmitCF(self, I_PDU : I_PDU, state : Can_TP_Transmit_State):
+    def transmitCF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
         N_PDU = copy.deepcopy(I_PDU)
  
-        state.sequence += 1
-        if state.sequence >= 16:
-            state.sequence = 0
+        connection.sequence += 1
+        if connection.sequence >= 16:
+            connection.sequence = 0
  
-        N_PCI = [0x02 << 4 | (state.sequence & 0x0F)]
+        N_PCI = [0x02 << 4 | (connection.sequence & 0x0F)]
  
         if(I_PDU.is_FD is not True):
             # Classical Can
-            N_SDU = I_PDU.SDU[state.index - 7 : state.index]
-            state.index += 7
+            N_SDU = I_PDU.SDU[connection.index - 7 : connection.index]
+            connection.index += 7
             # Completely send
-            if state.index > I_PDU.SDULength() + 7:
-                state.transmiting = False
-                state.sequence = 0
-                state.index = 0
+            if connection.index > I_PDU.SDULength() + 7:
+                connection.transmiting = False
+                connection.sequence = 0
+                connection.index = 0
         else:
             # Can FD
-            N_SDU = I_PDU.SDU[state.index - 63 : state.index]
-            state.index += 63
+            N_SDU = I_PDU.SDU[connection.index - 63 : connection.index]
+            connection.index += 63
             # Completely send
-            if state.index > I_PDU.SDULength() + 63:
-                state.transmiting = False
-                state.sequence = 0
-                state.index = 0
+            if connection.index > I_PDU.SDULength() + 63:
+                connection.transmiting = False
+                connection.sequence = 0
+                connection.index = 0
  
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
+        connection.stage = Connection_Stage.SENT_CF
  
     # Send FLOW CONTROL
-    def transmitFC(self, BS, STmin, FS):
+    def transmitFC(self, BS, STmin, FS : FS_t):
         FC_SDU = [((0x03 << 4 )|FS), BS, STmin] + [0] * 5
         FC = I_PDU(0x11, SDU = FC_SDU, is_FD = False)
-        self.trans.transmitMessage(FC)
+        self.bus.send(FC)
        
-       
+ 
 """ ===========================================================================================
 Module              : TP_Receive
 Brief               : Class derived by can.Listener
 Note                : - Construction with transmit interface, BS, STmin
 =========================================================================================== """
-class Can_TP_Receive_State:
-        def __init__(self):
-            self.receiving = False
- 
 class TP_Receive(can.Listener):
-    def __init__(self, trans : TP_Transmit, BS, STmin) -> None:
+    ''' Constructor '''
+    def __init__(self, connections_R : Can_TP_Connection) -> None:
         self.received_data = []                             # Array for storing massage
         self.expected_length = 0                            # Length of message (include data in  FF and CF)
         self.receiving = False
        
-        self.trans = trans
-        self.BS = BS
-        self.STmin = STmin
+        self.connections_R = connections_R
         self.sequenceIdx = 0
  
     # Override on_message_received
@@ -224,6 +262,10 @@ class TP_Receive(can.Listener):
             self.received_data = N_PDU.data[2:]
             self.receiving = True
             self.sequenceIdx = 1
+ 
+            # Sending FC to accept trasmitting request
+            # self.trans.transmitFC(FS = FS_t.CTS)
+ 
        
         # Consecutive Frame
         elif 0x20 <= PCI < 0x30 and self.receiving:
@@ -241,5 +283,10 @@ class TP_Receive(can.Listener):
                 if len(self.received_data) >= self.expected_length:
                     self.receiving = False
                     self.sequenceIdx = 0
- 
+       
+        elif 30 <= PCI < 40:
+            self.config.BS = N_PDU[1]
+            self.config.STmin = N_PDU[2]
+            if (N_PDU[0] & 0x0F) == FS_t.CTS:
+                pass
  
