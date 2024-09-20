@@ -6,10 +6,11 @@ data = """- Sometime in the early Cretaceous period of the Earth's history, hunt
  
  
 PDU_App_T = [
-    I_PDU(ID = 0x11, SDU = data.encode('utf-8'), is_FD = True),
-    I_PDU(ID = 0x22, SDU = "Hello".encode('utf-8'), is_FD = True),
-    I_PDU(ID = 0x33, SDU = data.encode('utf-8'), is_FD = False),
-    I_PDU(ID = 0x44, SDU = "PC here".encode('utf-8'), is_FD = False),
+    I_PDU(ID = 0x88, SDU = data.encode('utf-8'), is_FD = True),
+    I_PDU(ID = 0x89, SDU = "Hello".encode('utf-8'), is_FD = True),
+    I_PDU(ID = 0x90, SDU = data.encode('utf-8'), is_FD = True),
+    I_PDU(ID = 0x91, SDU = "PC here".encode('utf-8'), is_FD = False),
+    I_PDU(ID = 0x92, SDU = data.encode('utf-8'), is_FD = True),
 ]
  
 PDU_App_R = [

@@ -25,6 +25,8 @@ class Can_TP_Connection:
         self.receiving = False
         self.sequence = 0
         self.index = 0
+        self.sequenceIdx = 0
+        self.expected_length = 0        # Length of message (include data in  FF and CF)
         self.stage : Connection_Stage = Connection_Stage.UNKNOW_STATE
  
 class Can_TP:
@@ -97,9 +99,9 @@ class TP_Transmit:
                         else:
                             self.transmitFF(pdu, connection)
                             while connection.transmiting is True:
-                                if connection.stage != Connection_Stage.SENDING_CF_CONTINOUS:
-                                    self.transmitCF(pdu, connection)
-                                    time.sleep(connection.TP_Config.STmin)
+                                # if connection.stage != Connection_Stage.SENDING_CF_CONTINOUS:
+                                self.transmitCF(pdu, connection)
+                                    # time.sleep(connection.TP_Config.STmin)
                         break
            
             # Remove refesh requests
@@ -125,7 +127,6 @@ class TP_Transmit:
  
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
-        print("sent SF")
  
     # Send FIRST FRAME
     def transmitFF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
@@ -145,7 +146,6 @@ class TP_Transmit:
        
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
-        print("sent FF")
         connection.stage = Connection_Stage.SENT_FF
         connection.transmiting = True
        
@@ -196,97 +196,111 @@ Note                : - Construction with transmit interface, BS, STmin
 =========================================================================================== """
 class TP_Receive(can.Listener):
     ''' Constructor '''
-    def __init__(self, connections_R : Can_TP_Connection) -> None:
+    def __init__(self, connections_R : List[Can_TP_Connection]) -> None:
         self.received_data = []                             # Array for storing massage
-        self.expected_length = 0                            # Length of message (include data in  FF and CF)
-        self.receiving = False
-       
         self.connections_R = connections_R
-        self.sequenceIdx = 0
  
     # Override on_message_received
     def on_message_received(self, msg: can.Message) -> None:
+        # Check whether the connection already existed or not
+        connection = next((conn for conn in self.connections_R if msg.arbitration_id == conn.connectionID), None)
+ 
+        # Create new connection if it doesn't exist
+        if connection is None:
+            connection = Can_TP_Connection(connectionID = msg.arbitration_id)
+            self.connections_R.append( connection )
+ 
         if msg.is_fd == True:
-            self.process_CanFD(msg)
+            self.process_CanFD(msg, connection)
         else:
-            self.process_ClassicCan(msg)
+            self.process_ClassicCan(msg, connection)
  
-        if self.receiving == False:
-            print(self.received_data.decode('utf-8'))
-           
-    def process_CanFD(self, N_PDU : can.Message):
+        # Completed message
+        # if self.receiving == False:
+        #     print(self.received_data.decode('utf-8'))
+   
+    def detectPDU(self, connection : Can_TP_Connection) -> I_PDU:
+        global PDU_App_R
+        ReValue = None
+        for pdu in PDU_App_R:
+            if connection.connectionID == pdu.ID:
+                ReValue = pdu
+                break
+        return ReValue
+    def process_CanFD(self, N_PDU : can.Message, connection : Can_TP_Connection):
         PCI = N_PDU.data[:2]
+        PDU_working = self.detectPDU(connection)
+       
+        if PDU_working is not None:             # Unexpected message
+            # Single Frame
+            if PCI[0] == 0x00:
+                SDU = N_PDU.data[2:]
+                data_length = PCI[1]
+                PDU_working.SDU = SDU[:data_length]
+                connection.receiving = False
  
-        # Single Frame
-        if PCI[0] == 0x00:
-            SDU = N_PDU.data[2:]
-            data_length = PCI[1]
-            self.received_data = SDU[:data_length]
-            self.receiving = False
+            # First Frame
+            elif 0x10 <= PCI[0] < 0x20:
+                connection.expected_length = (N_PDU.data[2] << 24)| (N_PDU.data[3] << 16) | (N_PDU.data[4] << 8) | (N_PDU.data[5])
+                PDU_working.SDU = N_PDU.data[2:]
+                connection.receiving = True
+                connection.sequenceIdx = 1
  
-        # First Frame
-        elif 0x10 <= PCI[0] < 0x20:
-            self.expected_length = (N_PDU.data[2] << 24)| (N_PDU.data[3] << 16) | (N_PDU.data[4] << 8) | (N_PDU.data[5])
-            self.received_data = N_PDU.data[2:]
-            self.receiving = True
-            self.sequenceIdx = 1
+            # Consecutive Frame
+            elif 0x20 <= PCI[0] < 0x30 and connection.receiving:
+                sequence_number = PCI[0] & 0x0F
+                SDU = N_PDU.data[1:]
+                if connection.sequenceIdx == sequence_number:
+                    # Store data
+                    PDU_working.SDU += SDU
  
-        # Consecutive Frame
-        elif 0x20 <= PCI[0] < 0x30 and self.receiving:
-            sequence_number = PCI[0] & 0x0F
-            SDU = N_PDU.data[1:]
-            if self.sequenceIdx == sequence_number:
-                # Store data
-                self.received_data += SDU
+                    connection.sequenceIdx += 1
+                    if connection.sequenceIdx >= 16:
+                        connection.sequenceIdx = 0
+                   
+                    if len(PDU_working.SDU) >= connection.expected_length:
+                        connection.receiving = False
+                        connection.sequenceIdx = 0
  
-                self.sequenceIdx += 1
-                if self.sequenceIdx >= 16:
-                    self.sequenceIdx = 0
-               
-                if len(self.received_data) >= self.expected_length:
-                    self.receiving = False
-                    self.sequenceIdx = 0
- 
-    def process_ClassicCan(self, N_PDU : can.Message):
+    def process_ClassicCan(self, N_PDU : can.Message, connection : Can_TP_Connection):
         PCI = N_PDU.data[0]
         SDU = N_PDU.data[1:]
-        # Single Frame
-        if PCI <= 0x07:
-            data_length = PCI
-            self.received_data = SDU[:data_length]
-            self.receiving = False
+        PDU_working = self.detectPDU(connection)
+       
+        if PDU_working is not None:             # Unexpected message
+            # Single Frame
+            if PCI <= 0x07:
+                data_length = PCI
+                PDU_working.SDU = SDU[:data_length]
+                connection.receiving = False
+               
+            # First Frame
+            elif 0x10 <= PCI < 0x20:
+                connection.expected_length = ((PCI & 0x0F) << 8) | N_PDU.data[1]
+                PDU_working.SDU = N_PDU.data[2:]
+                connection.receiving = True
+                connection.sequenceIdx = 1
+ 
+            # Consecutive Frame
+            elif 0x20 <= PCI < 0x30 and self.receiving:
+                sequence_number = PCI & 0x0F
+ 
+                if connection.sequenceIdx == sequence_number:
+                    # Store data
+                    PDU_working.SDU += SDU
+ 
+                    connection.sequenceIdx += 1
+                    if connection.sequenceIdx >= 16:
+                        connection.sequenceIdx = 0
+ 
+                    # Finish receive a completed message
+                    if len(PDU_working.SDU) >= connection.expected_length:
+                        connection.receiving = False
+                        connection.sequenceIdx = 0
            
-        # First Frame
-        elif 0x10 <= PCI < 0x20:
-            self.expected_length = ((PCI & 0x0F) << 8) | N_PDU.data[1]
-            self.received_data = N_PDU.data[2:]
-            self.receiving = True
-            self.sequenceIdx = 1
- 
-            # Sending FC to accept trasmitting request
-            # self.trans.transmitFC(FS = FS_t.CTS)
- 
-       
-        # Consecutive Frame
-        elif 0x20 <= PCI < 0x30 and self.receiving:
-            sequence_number = PCI & 0x0F
- 
-            if self.sequenceIdx == sequence_number:
-                # Store data
-                self.received_data += SDU
- 
-                self.sequenceIdx += 1
-                if self.sequenceIdx >= 16:
-                    self.sequenceIdx = 0
- 
-                # Finish receive a completed message
-                if len(self.received_data) >= self.expected_length:
-                    self.receiving = False
-                    self.sequenceIdx = 0
-       
-        elif 30 <= PCI < 40:
-            self.config.BS = N_PDU[1]
-            self.config.STmin = N_PDU[2]
-            if (N_PDU[0] & 0x0F) == FS_t.CTS:
-                pass
+            elif 30 <= PCI < 40:
+                connection.TP_Config.BS = N_PDU[1]
+                connection.TP_Config.STmin = N_PDU[2]
+                if (N_PDU[0] & 0x0F) == FS_t.CTS:
+                    pass
  
