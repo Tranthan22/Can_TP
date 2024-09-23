@@ -4,7 +4,7 @@ import time
 import threading
 from typing import List
 from PDUs import PDU_App_T, PDU_App_R
-from Common import I_PDU, N_PDU, FS_t, Connection_Stage, Connection_Type
+from Common import I_PDU, N_PDU, FS_t, Connection_Stage, Connection_Type, TimeoutType
 from Can_LL import Bus
  
  
@@ -13,27 +13,103 @@ Module              : Can_TP
 Brief               : Main module for Can-TP
 =========================================================================================== """
 class Can_TP_Config:
-    def __init__(self, BS = 5, STmin = 5):
+    def __init__(self, BS = 5, STmin = 10, N_A = 1, N_B = 1, N_C = 1):
         self.FS = FS_t.CTS
         self.BS = BS
         self.STmin = STmin
  
+        """
+        N_As: Time for transmission of the CAN frame(any N_PDU) on the sender side
+        N_Ar: Time for transmission of the CAN frame (any N_PDU) on the receiver side"""
+        self.N_A = N_A
+       
+        """
+        N_Bs: Time until reception of the next FlowControl N_PDU
+        N_Br: Time until transmission of the next FlowControl N_PDU"""
+        self.N_B = N_B
+       
+        """
+        N_Cs Time until transmission of the next ConsecutiveFrame N_PDU
+        N_Cr Time until reception of the next Consecutive Frame N_PDU"""
+        self.N_C = N_C
+ 
+    def get(self):
+        return self.N_A
+ 
+ 
+ 
 class Can_TP_Connection:
     def __init__(self, connectionID, connectionType : Connection_Type):
         self.TP_Config = Can_TP_Config()
-        self.connectionID = connectionID
-        self.connectionType = connectionType
-        self.done = False               # Mark connection status (Done / not Done)
+        self.connectionID = connectionID            # connectionID is mapping to PDU ID
+        self.connectionType = connectionType        # Type: transmiter/receiver
+        self.done = False                           # Mark connection status (Done / not Done)
         self.sequence = 0
         self.index = 0
-        self.sequenceIdx = 0
-        self.timingMark = 0
-        self.continuousCF = 0
-        self.expected_length = 0        # Length of message (include data in  FF and CF)
+        self.timingMark = 0                         # Timing mark for STmin
+        self.timingoutMark = 0                      # Timing mark for checking timeout
+        self.continuousCF = 0                       # Number of receiving/transmitting CF at one time BS
+        self.expected_length = 0                    # Length of message (include data in  FF and CF)
+        self.waitNum = 0                            # Number of time the receiver sends wait FC
+        self.WFTmax = 0                             # Maximum of time the receiver sends wait FC
         self.stage : Connection_Stage = Connection_Stage.UNKNOW_STATE
  
+    # Timing process
+    # @classmethod
+    def TimeoutChecking(self, checkingType : TimeoutType) -> bool:
+        ReValue = True  # True = TIMEOUT_OK
+        if checkingType == TimeoutType.N_As:
+            if time.time() - self.timingoutMark > self.TP_Config.N_A:
+                self.stage = Connection_Stage.TIMEOUT
+                self.done = True
+                ReValue = False
+                print("Timeout As")
+        elif checkingType == TimeoutType.N_Bs:
+            if time.time() - self.timingoutMark > self.TP_Config.N_B:
+                self.stage = Connection_Stage.TIMEOUT
+                self.done = True
+                ReValue = False
+                print("Timeout Bs")
+        elif checkingType == TimeoutType.N_Cs:
+            if time.time() - self.timingoutMark > self.TP_Config.N_C:
+                self.stage = Connection_Stage.TIMEOUT
+                self.done = True
+                ReValue = False
+                print("Timeout Cs")
+        elif checkingType == TimeoutType.N_Ar:
+            if time.time() - self.timingoutMark > self.TP_Config.N_A:
+                self.stage = Connection_Stage.TIMEOUT
+                self.done = True
+                ReValue = False
+                print("Timeout Ar")
+        elif checkingType == TimeoutType.N_Br:
+            if time.time() - self.timingoutMark > self.TP_Config.N_B:
+                self.TP_Config.FS = FS_t.WAIT
+                self.waitNum += 1
+                print("Timeout Br")
+                if self.waitNum >= self.WFTmax:
+                    self.stage = Connection_Stage.TIMEOUT
+                    self.done = True
+                    print("Abort session caused timeout Br")
+                    return False
+            else:
+                self.TP_Config.FS = FS_t.CTS
+ 
+        elif checkingType == TimeoutType.N_Cr:
+            if time.time() - self.timingoutMark > self.TP_Config.N_C:
+                self.stage = Connection_Stage.TIMEOUT
+                self.done = True
+                ReValue = False
+                print("Timeout Cr")
+        else:
+            pass
+ 
+        # Refresh timing
+        self.timingoutMark = time.time()
+        return ReValue
+ 
 class Can_TP:
-    ''' Constructor '''
+    # Constructor
     def __init__(self):
         self.LL_bus = Bus()
         self.connections : List[Can_TP_Connection] = []
@@ -41,7 +117,7 @@ class Can_TP:
         self.TP_receive = TP_Receive(self.connections)
         self.main_thread = None
  
-    ''' Destructor '''
+    # Destructor
     def __del__(self):
         self.LL_bus.stopListen()
         self.LL_bus.stopBus()
@@ -71,23 +147,25 @@ Brief               : Module provides method for handling transmiting operation
                     of Can-TP layer
 ============================================================================================"""
 class TP_Transmit:
-    ''' Constructor '''
+    # Constructor
     def __init__(self, bus : Bus, connections : List[Can_TP_Connection]):
         # print("Constructor: CanTP Transmit")
         self.bus = bus
         self.connections = connections
  
-    ''' Destructor '''
+    # Destructor
     def __del__(self):
         # print("Destructor: CanTP Transmit")
         pass
    
-    """ Create request to send """
+    # Create request to send
     def transmit(self, I_PDU : I_PDU):
-        self.connections.append( Can_TP_Connection(I_PDU.ID, Connection_Type.TRANSMITER))
+        connection = Can_TP_Connection(I_PDU.ID, Connection_Type.TRANSMITER)
+        self.connections.append( connection )
+        connection.timingoutMark = time.time()  # Start N_As
         print("Create a request/connection")
        
-    """ Transmit mainfunction periodically works """
+    # Transmit mainfunction periodically works
     def Main_Fuction(self):
         global PDU_App_T
         while 1:
@@ -103,19 +181,22 @@ class TP_Transmit:
                             # Send SF
                             if pdu.SDULength() <= 7 or (pdu.SDULength() <= 62 and pdu.is_FD == True):
                                 self.transmitSF(pdu, connection)
- 
+                                connection.TimeoutChecking(TimeoutType.N_As)
                             # Send Segmentation
                             else:
                                 # Send First frame
                                 if connection.stage == Connection_Stage.UNKNOW_STATE:
                                     self.transmitFF(pdu, connection)
+                                    connection.TimeoutChecking(TimeoutType.N_As)
  
                                 # Send Consecutive frame
                                 elif connection.stage == Connection_Stage.SENDING_CF_CONTINOUS:
                                     # Satisfied seperated time
                                     if time.time() - connection.timingMark >= connection.TP_Config.STmin / 1000 :
+                                        connection.TimeoutChecking(TimeoutType.N_Cs)
                                         self.transmitCF(pdu, connection)
                                         connection.timingMark = time.time()
+                                        connection.TimeoutChecking(TimeoutType.N_As)
  
                                         # Wait after sending BS Consecutive Frame
                                         connection.continuousCF += 1
@@ -133,7 +214,11 @@ class TP_Transmit:
                 else:   # Role: Receiver
                     # sending Flow Control message
                     if connection.stage == Connection_Stage.SEND_FC:
-                        self.transmitFC(connection)
+                        if connection.TimeoutChecking(TimeoutType.N_Br) is True:
+                            self.transmitFC(connection)
+                            connection.TimeoutChecking(TimeoutType.N_Ar)
+                        else:
+                            pass    # Abort session
                     else:
                         pass
  
@@ -228,7 +313,6 @@ class TP_Transmit:
         FC = I_PDU(ID = connection.connectionID, SDU = FC_SDU, is_FD = False)
         self.bus.send(FC)
         connection.stage = Connection_Stage.RECEIVING_CF
-       
  
 """ ===========================================================================================
 Module              : TP_Receive
@@ -243,28 +327,28 @@ class TP_Receive(can.Listener):
  
     # Override on_message_received
     def on_message_received(self, msg: can.Message) -> None:
-        # Check whether the connection already existed or not
-        connection = next((conn for conn in self.connections if msg.arbitration_id == conn.connectionID), None)
-        # print(f"receive {msg}")
+        if msg.arbitration_id != 0x00:
+            # Check whether the connection already existed or not
+            connection = next((conn for conn in self.connections if msg.arbitration_id == conn.connectionID), None)
+            # print(f"receive {msg}")
  
-        # Create new connection if it doesn't exist
-        if connection is None:
-            connection = Can_TP_Connection(msg.arbitration_id, Connection_Type.RECEIVER)
-            connection.stage = Connection_Stage.SEND_FC
-            self.connections.append( connection )
-            print("Create a connection for receiving")
+            # Create new connection if it doesn't exist
+            if connection is None:
+                connection = Can_TP_Connection(msg.arbitration_id, Connection_Type.RECEIVER)
+                connection.stage = Connection_Stage.SEND_FC
+                self.connections.append( connection )
+                print("Create a connection for receiving")
  
-        if connection.connectionType == Connection_Type.RECEIVER:
-            if msg.is_fd == True:
-                self.processCanFD(msg, connection)
+            if connection.connectionType == Connection_Type.RECEIVER:
+                if msg.is_fd == True:
+                    self.processCanFD(msg, connection)
+                else:
+                    self.processClassicCan(msg, connection)
+            elif connection.connectionType == Connection_Type.TRANSMITER:
+                self.processFC(msg, connection)
             else:
-                self.processClassicCan(msg, connection)
-        elif connection.connectionType == Connection_Type.TRANSMITER:
-            self.processFC(msg, connection)
-        else:
-            pass
-           
- 
+                pass
+   
         # Completed message
         # if self.receiving == False:
         #     print(self.received_data.decode('utf-8'))
@@ -292,36 +376,40 @@ class TP_Receive(can.Listener):
  
             # First Frame
             elif 0x10 <= PCI[0] < 0x20:
+                connection.timingoutMark = time.time() # Start N_Br
                 connection.stage = Connection_Stage.RECEIVED_FF
                 connection.expected_length = (N_PDU.data[2] << 24)| (N_PDU.data[3] << 16) | (N_PDU.data[4] << 8) | (N_PDU.data[5])
                 PDU_working.SDU = N_PDU.data[2:]
                 connection.done = False
-                connection.sequenceIdx = 1
+                connection.sequence = 1
                 connection.stage = Connection_Stage.SEND_FC
  
             # Consecutive Frame
             elif 0x20 <= PCI[0] < 0x30:
-                sequence_number = PCI[0] & 0x0F
-                SDU = N_PDU.data[1:]
-                if connection.sequenceIdx == sequence_number:
-                    # Store data
-                    PDU_working.SDU += SDU
-                    connection.stage = Connection_Stage.RECEIVING_CF
+                if connection.TimeoutChecking(TimeoutType.N_Cr) is True:
+                    sequence_number = PCI[0] & 0x0F
+                    SDU = N_PDU.data[1:]
+                    if connection.sequence == sequence_number:
+                        # Store data
+                        PDU_working.SDU += SDU
+                        connection.stage = Connection_Stage.RECEIVING_CF
  
-                    # After BS times receive Consecutive Frame
-                    connection.continuousCF += 1
-                    if connection.continuousCF >= connection.TP_Config.BS:
-                        connection.stage = Connection_Stage.SEND_FC
-                        connection.continuousCF = 0
+                        # After BS times receive Consecutive Frame
+                        connection.continuousCF += 1
+                        if connection.continuousCF >= connection.TP_Config.BS:
+                            connection.stage = Connection_Stage.SEND_FC
+                            connection.continuousCF = 0
  
-                    # Cycle consequence index
-                    connection.sequenceIdx += 1
-                    if connection.sequenceIdx >= 16:
-                        connection.sequenceIdx = 0
-                   
-                    if len(PDU_working.SDU) >= connection.expected_length:
-                        connection.done = True
-                        connection.sequenceIdx = 0
+                        # Cycle consequence index
+                        connection.sequence += 1
+                        if connection.sequence >= 16:
+                            connection.sequence = 0
+                       
+                        if len(PDU_working.SDU) >= connection.expected_length:
+                            connection.done = True
+                            connection.sequence = 0
+                else:
+                    pass    # Abort session
             else:
                 pass
  
@@ -339,45 +427,54 @@ class TP_Receive(can.Listener):
                
             # First Frame
             elif 0x10 <= PCI < 0x20:
+                connection.timingoutMark = time.time() # Start N_Br
                 connection.expected_length = ((PCI & 0x0F) << 8) | N_PDU.data[1]
                 PDU_working.SDU = N_PDU.data[2:]
                 connection.done = False
-                connection.sequenceIdx = 1
+                connection.sequence = 1
                 connection.stage = Connection_Stage.SEND_FC
  
             # Consecutive Frame
             elif 0x20 <= PCI < 0x30:
-                sequence_number = PCI & 0x0F
+                if connection.TimeoutChecking(TimeoutType.N_Cr) is True:
+                    sequence_number = PCI & 0x0F
  
-                if connection.sequenceIdx == sequence_number:
-                    # Store data
-                    PDU_working.SDU += SDU
-                    connection.stage = Connection_Stage.RECEIVING_CF
+                    if connection.sequence == sequence_number:
+                        # Store data
+                        PDU_working.SDU += SDU
+                        connection.stage = Connection_Stage.RECEIVING_CF
  
-                    # After BS times receive Consecutive Frame
-                    connection.continuousCF += 1
-                    if connection.continuousCF >= connection.TP_Config.BS:
-                        connection.stage = Connection_Stage.SEND_FC
-                        connection.continuousCF = 0
+                        # After BS times receive Consecutive Frame
+                        connection.continuousCF += 1
+                        if connection.continuousCF >= connection.TP_Config.BS:
+                            connection.stage = Connection_Stage.SEND_FC
+                            connection.continuousCF = 0
  
-                    # Cycle consequence index
-                    connection.sequenceIdx += 1
-                    if connection.sequenceIdx >= 16:
-                        connection.sequenceIdx = 0
+                        # Cycle consequence index
+                        connection.sequence += 1
+                        if connection.sequence >= 16:
+                            connection.sequence = 0
  
-                    # Finish receive a completed message
-                    if len(PDU_working.SDU) >= connection.expected_length:
-                        connection.done = True
-                        connection.sequenceIdx = 0
+                        # Finish receive a completed message
+                        if len(PDU_working.SDU) >= connection.expected_length:
+                            connection.done = True
+                            connection.sequence = 0
+                else:
+                    pass    # Abort session
             else:
                 pass
    
     def processFC(self, N_PDU : can.Message, connection : Can_TP_Connection):
-        connection.TP_Config.BS = N_PDU.data[1]
-        connection.TP_Config.STmin = N_PDU.data[2]
-        if (N_PDU.data[0] & 0x0F) == FS_t.CTS.value:
-            connection.stage = Connection_Stage.SENDING_CF_CONTINOUS
-        elif (N_PDU.data[0] & 0x0F) == FS_t.WAIT.value:
-            connection.stage = Connection_Stage.SENDING_CF_WAIT
+        # Checking Bs timeout
+        if connection.TimeoutChecking(TimeoutType.N_Bs):
+            # Process Flow Control
+            connection.TP_Config.BS = N_PDU.data[1]
+            connection.TP_Config.STmin = N_PDU.data[2]
+            if (N_PDU.data[0] & 0x0F) == FS_t.CTS.value:
+                connection.stage = Connection_Stage.SENDING_CF_CONTINOUS
+            elif (N_PDU.data[0] & 0x0F) == FS_t.WAIT.value:
+                connection.stage = Connection_Stage.SENDING_CF_WAIT
+            else:
+                pass
         else:
-            pass
+            pass # Abort session

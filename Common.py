@@ -28,6 +28,7 @@ class Connection_Type(Enum):
     RECEIVER            = 1
  
 class Connection_Stage(Enum):
+    TIMEOUT                 = -2
     UNKNOW_STATE            = -1
  
     # Transmitter uses
@@ -40,3 +41,10 @@ class Connection_Stage(Enum):
     RECEIVING_CF            = 7
     SEND_FC                 = 8
  
+class TimeoutType(Enum):
+    N_As            = 0
+    N_Bs            = 1
+    N_Cs            = 2
+    N_Ar            = 3
+    N_Br            = 4
+    N_Cr            = 5
