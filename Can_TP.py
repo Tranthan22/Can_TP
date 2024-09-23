@@ -13,7 +13,7 @@ Module              : Can_TP
 Brief               : Main module for Can-TP
 =========================================================================================== """
 class Can_TP_Config:
-    def __init__(self, BS = 5, STmin = 10):
+    def __init__(self, BS = 5, STmin = 5):
         self.FS = FS_t.CTS
         self.BS = BS
         self.STmin = STmin
@@ -28,6 +28,7 @@ class Can_TP_Connection:
         self.index = 0
         self.sequenceIdx = 0
         self.timingMark = 0
+        self.continuousCF = 0
         self.expected_length = 0        # Length of message (include data in  FF and CF)
         self.stage : Connection_Stage = Connection_Stage.UNKNOW_STATE
  
@@ -112,9 +113,15 @@ class TP_Transmit:
                                 # Send Consecutive frame
                                 elif connection.stage == Connection_Stage.SENDING_CF_CONTINOUS:
                                     # Satisfied seperated time
-                                    if time.time() - connection.timingMark > connection.TP_Config.STmin / 1000 :
+                                    if time.time() - connection.timingMark >= connection.TP_Config.STmin / 1000 :
                                         self.transmitCF(pdu, connection)
                                         connection.timingMark = time.time()
+ 
+                                        # Wait after sending BS Consecutive Frame
+                                        connection.continuousCF += 1
+                                        if connection.continuousCF >= connection.TP_Config.BS:
+                                            connection.stage = Connection_Stage.SENDING_CF_WAIT
+                                            connection.continuousCF = 0
  
                                 # Receiver need more time to get the next components
                                 elif connection.stage == Connection_Stage.SENDING_CF_WAIT:
@@ -124,7 +131,7 @@ class TP_Transmit:
                                     pass
                             break
                 else:   # Role: Receiver
-                    # Receiver sends Flow Control message
+                    # sending Flow Control message
                     if connection.stage == Connection_Stage.SEND_FC:
                         self.transmitFC(connection)
                     else:
@@ -253,7 +260,6 @@ class TP_Receive(can.Listener):
             else:
                 self.processClassicCan(msg, connection)
         elif connection.connectionType == Connection_Type.TRANSMITER:
-            print("huhu")
             self.processFC(msg, connection)
         else:
             pass
@@ -301,6 +307,14 @@ class TP_Receive(can.Listener):
                     # Store data
                     PDU_working.SDU += SDU
                     connection.stage = Connection_Stage.RECEIVING_CF
+ 
+                    # After BS times receive Consecutive Frame
+                    connection.continuousCF += 1
+                    if connection.continuousCF >= connection.TP_Config.BS:
+                        connection.stage = Connection_Stage.SEND_FC
+                        connection.continuousCF = 0
+ 
+                    # Cycle consequence index
                     connection.sequenceIdx += 1
                     if connection.sequenceIdx >= 16:
                         connection.sequenceIdx = 0
@@ -339,6 +353,14 @@ class TP_Receive(can.Listener):
                     # Store data
                     PDU_working.SDU += SDU
                     connection.stage = Connection_Stage.RECEIVING_CF
+ 
+                    # After BS times receive Consecutive Frame
+                    connection.continuousCF += 1
+                    if connection.continuousCF >= connection.TP_Config.BS:
+                        connection.stage = Connection_Stage.SEND_FC
+                        connection.continuousCF = 0
+ 
+                    # Cycle consequence index
                     connection.sequenceIdx += 1
                     if connection.sequenceIdx >= 16:
                         connection.sequenceIdx = 0
