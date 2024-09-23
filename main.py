@@ -61,4 +61,4 @@ if __name__ == "__main__":
         if (PDU_App_R[7].SDU) is not None:
             print("8")
             print((PDU_App_R[7].SDU).decode('utf-8'))
-        time.sleep(1)
+        time.sleep(3)

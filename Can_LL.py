@@ -1,4 +1,5 @@
 import can
+import time
 from Common import N_PDU
  
 """ ===========================================================================================
@@ -41,7 +42,7 @@ class Bus:
     def send(self, N_PDU : N_PDU):
         if self.bus is None:
             print("Bus has not been initialized")
- 
+        # print(N_PDU.ID)
         try:
             msg = can.Message(
                 arbitration_id = N_PDU.ID,
@@ -49,8 +50,9 @@ class Bus:
                 is_extended_id = N_PDU.is_ExtendedID,
                 is_fd = N_PDU.is_FD
             )
+            print(f"transmit: {msg}")
             self.bus.send(msg)
- 
+
         except Exception as e:
             print(f"Error send: {e}")
  

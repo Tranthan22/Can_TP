@@ -13,7 +13,7 @@ Module              : Can_TP
 Brief               : Main module for Can-TP
 =========================================================================================== """
 class Can_TP_Config:
-    def __init__(self, BS = 5, STmin = 0.01):
+    def __init__(self, BS = 5, STmin = 10):
         self.FS = FS_t.CTS
         self.BS = BS
         self.STmin = STmin
@@ -105,15 +105,14 @@ class TP_Transmit:
  
                             # Send Segmentation
                             else:
-                                print(connection.stage)
                                 # Send First frame
                                 if connection.stage == Connection_Stage.UNKNOW_STATE:
                                     self.transmitFF(pdu, connection)
-                                   
+ 
                                 # Send Consecutive frame
-                                elif (connection.stage == Connection_Stage.SENDING_CF_CONTINOUS) or (connection.stage == Connection_Stage.SENT_FF):
+                                elif connection.stage == Connection_Stage.SENDING_CF_CONTINOUS:
                                     # Satisfied seperated time
-                                    if time.time() - connection.timingMark > connection.TP_Config.STmin:
+                                    if time.time() - connection.timingMark > connection.TP_Config.STmin / 1000 :
                                         self.transmitCF(pdu, connection)
                                         connection.timingMark = time.time()
  
@@ -127,7 +126,7 @@ class TP_Transmit:
                 else:   # Role: Receiver
                     # Receiver sends Flow Control message
                     if connection.stage == Connection_Stage.SEND_FC:
-                        self.transmitFC(pdu, connection)
+                        self.transmitFC(connection)
                     else:
                         pass
  
@@ -158,7 +157,7 @@ class TP_Transmit:
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
         connection.done = True
-        print("sent SF")
+        # print("sent SF")
  
     # Send FIRST FRAME
     def transmitFF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
@@ -179,7 +178,7 @@ class TP_Transmit:
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
         connection.stage = Connection_Stage.SENT_FF
-        print("sent FF")
+        # print("sent FF")
         connection.done = False
        
     # Send CONSECUTIVE FRAME
@@ -214,13 +213,14 @@ class TP_Transmit:
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
         connection.stage = Connection_Stage.SENDING_CF_CONTINOUS
-        print("sent CF")
+        # print("sent CF")
  
     # Send FLOW CONTROL
     def transmitFC(self, connection : Can_TP_Connection):
-        FC_SDU = [((0x03 << 4 )|connection.TP_Config.FS), connection.TP_Config.BS, connection.TP_Config.STmin] + [0] * 5
-        FC = I_PDU(0x11, SDU = FC_SDU, is_FD = False)
+        FC_SDU = [((0x03 << 4 )|connection.TP_Config.FS.value), connection.TP_Config.BS, connection.TP_Config.STmin] + [0] * 5
+        FC = I_PDU(ID = connection.connectionID, SDU = FC_SDU, is_FD = False)
         self.bus.send(FC)
+        connection.stage = Connection_Stage.RECEIVING_CF
        
  
 """ ===========================================================================================
@@ -238,11 +238,12 @@ class TP_Receive(can.Listener):
     def on_message_received(self, msg: can.Message) -> None:
         # Check whether the connection already existed or not
         connection = next((conn for conn in self.connections if msg.arbitration_id == conn.connectionID), None)
+        # print(f"receive {msg}")
  
         # Create new connection if it doesn't exist
         if connection is None:
             connection = Can_TP_Connection(msg.arbitration_id, Connection_Type.RECEIVER)
-            # connection.stage =
+            connection.stage = Connection_Stage.SEND_FC
             self.connections.append( connection )
             print("Create a connection for receiving")
  
@@ -252,6 +253,7 @@ class TP_Receive(can.Listener):
             else:
                 self.processClassicCan(msg, connection)
         elif connection.connectionType == Connection_Type.TRANSMITER:
+            print("huhu")
             self.processFC(msg, connection)
         else:
             pass
@@ -284,11 +286,12 @@ class TP_Receive(can.Listener):
  
             # First Frame
             elif 0x10 <= PCI[0] < 0x20:
+                connection.stage = Connection_Stage.RECEIVED_FF
                 connection.expected_length = (N_PDU.data[2] << 24)| (N_PDU.data[3] << 16) | (N_PDU.data[4] << 8) | (N_PDU.data[5])
                 PDU_working.SDU = N_PDU.data[2:]
                 connection.done = False
                 connection.sequenceIdx = 1
-                connection.stage = Connection_Stage.RECEIVED_FF
+                connection.stage = Connection_Stage.SEND_FC
  
             # Consecutive Frame
             elif 0x20 <= PCI[0] < 0x30:
@@ -326,7 +329,7 @@ class TP_Receive(can.Listener):
                 PDU_working.SDU = N_PDU.data[2:]
                 connection.done = False
                 connection.sequenceIdx = 1
-                connection.stage = Connection_Stage.RECEIVED_FF
+                connection.stage = Connection_Stage.SEND_FC
  
             # Consecutive Frame
             elif 0x20 <= PCI < 0x30:
@@ -348,11 +351,11 @@ class TP_Receive(can.Listener):
                 pass
    
     def processFC(self, N_PDU : can.Message, connection : Can_TP_Connection):
-        connection.TP_Config.BS = N_PDU[1]
-        connection.TP_Config.STmin = N_PDU[2]
-        if (N_PDU[0] & 0x0F) == FS_t.CTS:
+        connection.TP_Config.BS = N_PDU.data[1]
+        connection.TP_Config.STmin = N_PDU.data[2]
+        if (N_PDU.data[0] & 0x0F) == FS_t.CTS.value:
             connection.stage = Connection_Stage.SENDING_CF_CONTINOUS
-        elif (N_PDU[0] & 0x0F) == FS_t.WAIT:
+        elif (N_PDU.data[0] & 0x0F) == FS_t.WAIT.value:
             connection.stage = Connection_Stage.SENDING_CF_WAIT
         else:
             pass
