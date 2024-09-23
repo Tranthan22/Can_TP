@@ -14,6 +14,12 @@ PDU_App_T = [
 ]
  
 PDU_App_R = [
-    I_PDU(ID = 0x55),
-    I_PDU(ID = 0x66)
+    I_PDU(ID = 0x88),
+    I_PDU(ID = 0x89),
+    I_PDU(ID = 0x90),
+    I_PDU(ID = 0x91),
+    I_PDU(ID = 0x92),
+    I_PDU(ID = 0x93),
+    I_PDU(ID = 0x11),
+    I_PDU(ID = 0x12)
 ]

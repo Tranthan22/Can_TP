@@ -23,18 +23,20 @@ class FS_t(Enum):
     WAIT                = 1
     OVFLW               = 2
  
-class Connection_State(Enum):
-    TRANSMIT_STATE      = 0
-    RECEIVING_STATE     = 1
-    IDLE_STATE          = 2
+class Connection_Type(Enum):
+    TRANSMITER          = 0
+    RECEIVER            = 1
  
 class Connection_Stage(Enum):
     UNKNOW_STATE            = -1
+ 
+    # Transmitter uses
     SENT_FF                 = 0
     SENDING_CF_CONTINOUS    = 1
     SENDING_CF_WAIT         = 2
-    SENT_CF                 = 3
-    SENT_FC                 = 4
+   
+    # Receiver uses
+    RECEIVED_FF             = 6
+    RECEIVING_CF            = 7
+    SEND_FC                 = 8
  
-    RECEIVED_FF             = 5
-    RECEIVING_CF            = 6
