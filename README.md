@@ -4,7 +4,7 @@ This project is designed just only in experiment, mainly for testing
 
 Main feature
 - Works well with both Classical CAN and CAN FD
-- Fully meet requirements of transportation layer(Segment, Reassemble)
+- Fully meet requirements of transportation layer(Segment, Reassemble, Timing Session)
 - Multi connection
 
 Equipments
