@@ -6,6 +6,7 @@ This project is designed just only in experiment, mainly for testing
 ## Main feature
 - **Classification:** Works well with both Classical CAN and CAN FD
 - **Segmentation, Reassembly:** Fully meet requirements of transportation layer
+- **Frame support:** Includes SF(single frame), FF(First Frame), CF(Consecutive Frame), FC(Flow Control) following ISO 15765-2
 - **Session:** Handles session for connection
 - **Multi connection:** Deals with multiple connections simultaneously (multiple segmentation sessions in parallel)
 - **Configuable:** Parameter could be configuable, providing ability to simulate cases
