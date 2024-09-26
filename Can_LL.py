@@ -47,8 +47,8 @@ class Bus:
             msg = can.Message(
                 arbitration_id = N_PDU.ID,
                 data = N_PDU.SDU,
-                is_extended_id = N_PDU.is_ExtendedID,
-                is_fd = N_PDU.is_FD
+                is_extended_id = N_PDU.isExtendedID,
+                is_fd = N_PDU.isFD
             )
             print(f"transmit: {msg}")
             self.bus.send(msg)

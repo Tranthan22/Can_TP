@@ -1,12 +1,21 @@
 from enum import Enum
  
 class I_PDU:
-    def __init__(self, ID = 0, SDU = None, is_ExtendedID = False, is_FD = False, bitrate_sw = False):
+    def __init__(self, ID = 0, SDU = None, isExtendedID = False, isFD = False, bitrateSW = False, Tx_DL = 8, isPadding = True, BS = 5, STmin = 10, N_A = 2, N_B = 2, N_C = 2):
         self.ID = ID
         self.SDU =  SDU
-        self.is_ExtendedID = is_ExtendedID
-        self.is_FD = is_FD
-        self.bitrate_sw = bitrate_sw
+        self.isExtendedID = isExtendedID
+        self.isFD = isFD
+        self.bitrateSW = bitrateSW
+        self.Tx_DL = Tx_DL
+        self.isPadding = isPadding
+        self.dummyByte = 0x00
+ 
+        self.BS = BS
+        self.STmin = STmin
+        self.N_A = N_A
+        self.N_B = N_B
+        self.N_C = N_C
  
     def SDULength(self) -> int:
         return len(self.SDU)
@@ -27,6 +36,7 @@ class Connection_Type(Enum):
     TRANSMITER          = 0
     RECEIVER            = 1
  
+ 
 class Connection_Stage(Enum):
     TIMEOUT                 = -2
     UNKNOW_STATE            = -1
@@ -40,6 +50,13 @@ class Connection_Stage(Enum):
     RECEIVED_FF             = 6
     RECEIVING_CF            = 7
     SEND_FC                 = 8
+ 
+class MessageFrame_Type(Enum):
+    UNKNOWN_TYPE            = -1
+    TYPE_0                  = 0         # Single Frame (CAN_DL <= 8)
+    TYPE_1                  = 1         # Single Frame (CAN_DL > 8)
+    TYPE_2                  = 2         # First Frame (FF_DL <= 4095)
+    TYPE_3                  = 3         # First Frame (FF_DL > 4095)
  
 class TimeoutType(Enum):
     N_As            = 0

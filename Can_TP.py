@@ -4,7 +4,7 @@ import time
 import threading
 from typing import List
 from PDUs import PDU_App_T, PDU_App_R
-from Common import I_PDU, N_PDU, FS_t, Connection_Stage, Connection_Type, TimeoutType
+from Common import I_PDU, N_PDU, FS_t, Connection_Stage, Connection_Type, TimeoutType, MessageFrame_Type
 from Can_LL import Bus
  
  
@@ -13,7 +13,7 @@ Module              : Can_TP
 Brief               : Main module for Can-TP
 =========================================================================================== """
 class Can_TP_Config:
-    def __init__(self, BS = 5, STmin = 10, N_A = 1, N_B = 1, N_C = 1):
+    def __init__(self, BS, STmin, N_A, N_B, N_C):
         self.FS = FS_t.CTS
         self.BS = BS
         self.STmin = STmin
@@ -33,16 +33,13 @@ class Can_TP_Config:
         N_Cr Time until reception of the next Consecutive Frame N_PDU"""
         self.N_C = N_C
  
-    def get(self):
-        return self.N_A
- 
- 
- 
 class Can_TP_Connection:
-    def __init__(self, connectionID, connectionType : Connection_Type):
-        self.TP_Config = Can_TP_Config()
-        self.connectionID = connectionID            # connectionID is mapping to PDU ID
+    def __init__(self, connectionID, connectionType : Connection_Type, BS = 5, STmin = 10, N_A = 2, N_B = 2, N_C = 2):
+        self.TP_Config = Can_TP_Config(BS, STmin, N_A, N_B, N_C)
+        self.connectionID = connectionID               # connectionID is mapping to PDU ID
+        # self.I_PDU = I_PDU                          # Reference of I_PDU
         self.connectionType = connectionType        # Type: transmiter/receiver
+        self.messageFrame = self.classifyMessFrame()
         self.done = False                           # Mark connection status (Done / not Done)
         self.sequence = 0
         self.index = 0
@@ -51,11 +48,39 @@ class Can_TP_Connection:
         self.continuousCF = 0                       # Number of receiving/transmitting CF at one time BS
         self.expected_length = 0                    # Length of message (include data in  FF and CF)
         self.waitNum = 0                            # Number of time the receiver sends wait FC
-        self.WFTmax = 0                             # Maximum of time the receiver sends wait FC
+        self.WFTmax = 10                            # Maximum of time the receiver sends wait FC
         self.stage : Connection_Stage = Connection_Stage.UNKNOW_STATE
  
-    # Timing process
+    def classifyMessFrame(self) -> MessageFrame_Type:
+        global PDU_App_T
+        for pdu in PDU_App_T:
+            if pdu.ID == self.connectionID:
+                SDULength = pdu.SDULength()
+                if SDULength < 8:
+                    if pdu.isFD is True:
+                        print("type 0")
+                        return MessageFrame_Type.TYPE_0
+                    else:
+                        print("type 1")
+                        return MessageFrame_Type.TYPE_1
+                elif SDULength < 62:
+                    if pdu.isFD is True:
+                        print("type 1")
+                        return MessageFrame_Type.TYPE_1
+                    else:
+                        print("type 2")
+                        return MessageFrame_Type.TYPE_2
+                elif SDULength <= 4095:
+                    print("type 2")
+                    return MessageFrame_Type.TYPE_2
+                else:
+                    print("type 3")
+                    return MessageFrame_Type.TYPE_3
+            else:
+                pass
+           
     # @classmethod
+    # Timing process
     def TimeoutChecking(self, checkingType : TimeoutType) -> bool:
         ReValue = True  # True = TIMEOUT_OK
         if checkingType == TimeoutType.N_As:
@@ -84,7 +109,7 @@ class Can_TP_Connection:
                 print("Timeout Ar")
         elif checkingType == TimeoutType.N_Br:
             if time.time() - self.timingoutMark > self.TP_Config.N_B:
-                self.TP_Config.FS = FS_t.WAIT
+                # self.TP_Config.FS = FS_t.WAIT
                 self.waitNum += 1
                 print("Timeout Br")
                 if self.waitNum >= self.WFTmax:
@@ -179,9 +204,8 @@ class TP_Transmit:
                     for pdu in PDU_App_T:
                         if connection.connectionID == pdu.ID:
                             # Send SF
-                            if pdu.SDULength() <= 7 or (pdu.SDULength() <= 62 and pdu.is_FD == True):
+                            if (connection.messageFrame == MessageFrame_Type.TYPE_0) or (connection.messageFrame == MessageFrame_Type.TYPE_1):
                                 self.transmitSF(pdu, connection)
-                                connection.TimeoutChecking(TimeoutType.N_As)
                             # Send Segmentation
                             else:
                                 # Send First frame
@@ -204,7 +228,7 @@ class TP_Transmit:
                                             connection.stage = Connection_Stage.SENDING_CF_WAIT
                                             connection.continuousCF = 0
  
-                                # Receiver need more time to get the next components
+                                # Receiver need more time to get the next segments
                                 elif connection.stage == Connection_Stage.SENDING_CF_WAIT:
                                     pass
  
@@ -239,33 +263,49 @@ class TP_Transmit:
     def transmitSF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
         SDULength = I_PDU.SDULength()
         N_PDU = copy.deepcopy(I_PDU)
-        N_SDU = I_PDU.SDU
  
-        if(I_PDU.is_FD is not True):
-            N_PCI = [(0 | SDULength & 0x0F)]       # Classic CAN
+        # Message Frame: Type 0
+        if connection.messageFrame == MessageFrame_Type.TYPE_0:
+            N_PCI = [(0 | SDULength & 0x0F)]
+            if I_PDU.isPadding is True:
+                N_SDU = list([I_PDU.dummyByte] * (I_PDU.Tx_DL - 1))
+                N_SDU[:I_PDU.SDULength()] = list(I_PDU.SDU)
+            else:
+                N_SDU = list(I_PDU.SDU)
+       
+        # Message Frame: Type 1
         else:
-            N_PCI = [0 , SDULength]         # Can FD
+            N_PCI = [0 , SDULength]            
+            N_SDU = list([I_PDU.dummyByte] * (I_PDU.Tx_DL - 2))
+            N_SDU[:I_PDU.SDULength] = list(I_PDU.SDU)
  
-        N_PDU.SDU = list(N_PCI) + list(N_SDU)
+        N_PDU.SDU = N_PCI + N_SDU
         self.bus.send(N_PDU)
         connection.done = True
-        # print("sent SF")
  
     # Send FIRST FRAME
     def transmitFF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
         SDULength = I_PDU.SDULength()
+        print(SDULength)
         N_PDU = copy.deepcopy(I_PDU)
  
-        if(I_PDU.is_FD is not True):
-            # Classical Can
+        # Message Frame: Type 2
+        if connection.messageFrame == MessageFrame_Type.TYPE_2:
             N_PCI = [(0x01 << 4 | (SDULength >> 8)), (SDULength & 0xFF)]
-            N_SDU = I_PDU.SDU[:6]
-            connection.index = 13
+            print(N_PCI)
+            # CAN FD (FF = Tx_DL bytes)
+            if I_PDU.isFD is True:
+                N_SDU = I_PDU.SDU[:(I_PDU.Tx_DL - 2)]
+                connection.index = I_PDU.Tx_DL - 2          # Minus 2 bytes PCI
+            # Classical CAN (FF = 8 bytes)
+            else:
+                N_SDU = I_PDU.SDU[:6]
+                connection.index = 6                        # Minus 2 bytes PCI
+        # Message Frame: Type 3
         else:
-            # Can FD
             N_PCI = [(0x01 << 4), 0x00, (SDULength >> 24 & 0xFF),(SDULength >> 16 & 0xFF), (SDULength >> 8 & 0xFF), (SDULength & 0xFF)]
-            N_SDU = I_PDU.SDU[:58]              # 64 - 6 PCI bytes
-            connection.index = 121
+            N_SDU = I_PDU.SDU[:(I_PDU.Tx_DL - 6)]
+            connection.index = I_PDU.Tx_DL - 6
        
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
@@ -276,32 +316,43 @@ class TP_Transmit:
     # Send CONSECUTIVE FRAME
     def transmitCF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
         N_PDU = copy.deepcopy(I_PDU)
- 
+       
+        # N_PCI
         connection.sequence += 1
         if connection.sequence >= 16:
             connection.sequence = 0
- 
         N_PCI = [0x02 << 4 | (connection.sequence & 0x0F)]
  
-        if(I_PDU.is_FD is not True):
-            # Classical Can
-            N_SDU = I_PDU.SDU[connection.index - 7 : connection.index]
-            connection.index += 7
-            # Completely send
-            if connection.index > I_PDU.SDULength() + 7:
+        # Classical Can
+        if(I_PDU.isFD is not True):
+            # Last segmentation
+            if (connection.index + I_PDU.Tx_DL - 1) > I_PDU.SDULength():
+                if I_PDU.isPadding is True:
+                    segLength = I_PDU.SDULength() - connection.index
+                    N_SDU = list([I_PDU.dummyByte] * (I_PDU.Tx_DL - 1))
+                    N_SDU[:segLength] = I_PDU.SDU[connection.index : connection.index + I_PDU.Tx_DL - 1]
+                else:
+                    N_SDU = I_PDU.SDU[connection.index:]
+                # Mark done connection
                 connection.done = True
-                connection.sequence = 0
-                connection.index = 0
-        else:
-            # Can FD
-            N_SDU = I_PDU.SDU[connection.index - 63 : connection.index]
-            connection.index += 63
-            # Completely send
-            if connection.index > I_PDU.SDULength() + 63:
-                connection.done = True
-                connection.sequence = 0
-                connection.index = 0
  
+            else:
+                N_SDU = I_PDU.SDU[connection.index : connection.index + I_PDU.Tx_DL - 1]
+                connection.index += (I_PDU.Tx_DL - 1)
+        # Can FD
+        else:
+            # Last segmentation
+            if (connection.index + I_PDU.Tx_DL - 1) > I_PDU.SDULength():
+                segLength = I_PDU.SDULength() - connection.index
+                N_SDU = list([I_PDU.dummyByte] * (I_PDU.Tx_DL - 1))
+                N_SDU[:segLength] = I_PDU.SDU[connection.index : connection.index + I_PDU.Tx_DL - 1]
+               
+                # Mark done connection
+                connection.done = True
+            else:
+                N_SDU = I_PDU.SDU[connection.index : connection.index + I_PDU.Tx_DL - 1]
+                connection.index += (I_PDU.Tx_DL - 1)
+           
         N_PDU.SDU = list(N_PCI) + list(N_SDU)
         self.bus.send(N_PDU)
         connection.stage = Connection_Stage.SENDING_CF_CONTINOUS
@@ -310,7 +361,7 @@ class TP_Transmit:
     # Send FLOW CONTROL
     def transmitFC(self, connection : Can_TP_Connection):
         FC_SDU = [((0x03 << 4 )|connection.TP_Config.FS.value), connection.TP_Config.BS, connection.TP_Config.STmin] + [0] * 5
-        FC = I_PDU(ID = connection.connectionID, SDU = FC_SDU, is_FD = False)
+        FC = I_PDU(ID = connection.connectionID, SDU = FC_SDU, isFD = False)
         self.bus.send(FC)
         connection.stage = Connection_Stage.RECEIVING_CF
  
@@ -330,7 +381,7 @@ class TP_Receive(can.Listener):
         if msg.arbitration_id != 0x00:
             # Check whether the connection already existed or not
             connection = next((conn for conn in self.connections if msg.arbitration_id == conn.connectionID), None)
-            # print(f"receive {msg}")
+            print(f"receive {msg}")
  
             # Create new connection if it doesn't exist
             if connection is None:
@@ -363,92 +414,114 @@ class TP_Receive(can.Listener):
         return ReValue  # Return reference of IPDU which connection works with
    
     def processCanFD(self, N_PDU : can.Message, connection : Can_TP_Connection):
-        PCI = N_PDU.data[:2]
+        FirstByte = N_PDU.data[0]
+        SecondByte = N_PDU.data[1]
+ 
+        MsgType = (FirstByte >> 4) & 0x0F
+ 
         PDU_working = self.detectPDU(connection)
        
         if PDU_working is not None:             # Unexpected message
             # Single Frame
-            if PCI[0] == 0x00:
-                SDU = N_PDU.data[2:]
-                data_length = PCI[1]
-                PDU_working.SDU = SDU[:data_length]
+            if MsgType == 0x00:
+                # Message Frame: Type 0
+                if (FirstByte & 0x0F) != 0x00:
+                    SDU = N_PDU.data[1:]
+                    SF_DL = (FirstByte >> 4) & 0x0F
+                    PDU_working.SDU = SDU[:SF_DL]
+               
+                # Message Frame: Type 1
+                else:
+                    SDU = N_PDU.data[2:]
+                    SF_DL = N_PDU.data[2]
+                    PDU_working.SDU = SDU[:SF_DL]
+ 
+                print(connection.stage)
                 connection.done = True
  
             # First Frame
-            elif 0x10 <= PCI[0] < 0x20:
-                connection.timingoutMark = time.time() # Start N_Br
+            elif MsgType == 0x01:
                 connection.stage = Connection_Stage.RECEIVED_FF
-                connection.expected_length = (N_PDU.data[2] << 24)| (N_PDU.data[3] << 16) | (N_PDU.data[4] << 8) | (N_PDU.data[5])
-                PDU_working.SDU = N_PDU.data[2:]
+                connection.timingoutMark = time.time() # Start N_Br
+                FF_DL = ((FirstByte & 0x0F) << 8) | (SecondByte)
+                # Message Frame: Type 2
+                if FF_DL != 0x00:
+                    connection.expected_length = FF_DL
+                    PDU_working.SDU = N_PDU.data[2:]
+                   
+                # Message Frame: Type 3
+                else:
+                    connection.expected_length = (N_PDU.data[2] << 24)| (N_PDU.data[3] << 16) | (N_PDU.data[4] << 8) | (N_PDU.data[5])
+                    PDU_working.SDU = N_PDU.data[6:]
                 connection.done = False
                 connection.sequence = 1
                 connection.stage = Connection_Stage.SEND_FC
  
             # Consecutive Frame
-            elif 0x20 <= PCI[0] < 0x30:
+            elif MsgType == 0x02:
                 if connection.TimeoutChecking(TimeoutType.N_Cr) is True:
-                    sequence_number = PCI[0] & 0x0F
+                    sequence_number = FirstByte & 0x0F
                     SDU = N_PDU.data[1:]
                     if connection.sequence == sequence_number:
                         # Store data
                         PDU_working.SDU += SDU
                         connection.stage = Connection_Stage.RECEIVING_CF
- 
-                        # After BS times receive Consecutive Frame
                         connection.continuousCF += 1
-                        if connection.continuousCF >= connection.TP_Config.BS:
-                            connection.stage = Connection_Stage.SEND_FC
-                            connection.continuousCF = 0
  
                         # Cycle consequence index
                         connection.sequence += 1
                         if connection.sequence >= 16:
                             connection.sequence = 0
                        
+                        # Finish receive a completed message
                         if len(PDU_working.SDU) >= connection.expected_length:
+                            PDU_working.SDU = PDU_working.SDU[:connection.expected_length]
                             connection.done = True
                             connection.sequence = 0
+                        else:
+                            # After BS times receive Consecutive Frame
+                            if connection.continuousCF >= connection.TP_Config.BS:
+                                connection.stage = Connection_Stage.SEND_FC
+                                connection.continuousCF = 0
                 else:
                     pass    # Abort session
             else:
                 pass
  
     def processClassicCan(self, N_PDU : can.Message, connection : Can_TP_Connection):
-        PCI = N_PDU.data[0]
-        SDU = N_PDU.data[1:]
+        FirstByte = N_PDU.data[0]
+        MsgType = (FirstByte >> 4) & 0x0F
+ 
         PDU_working = self.detectPDU(connection)
  
         if PDU_working is not None:             # Unexpected message
             # Single Frame
-            if PCI <= 0x07:
-                data_length = PCI
-                PDU_working.SDU = SDU[:data_length]
+            if MsgType == 0x00:
+                SF_DL = FirstByte
+                PDU_working.SDU = N_PDU.data[1 : SF_DL + 1]
                 connection.done = True
                
             # First Frame
-            elif 0x10 <= PCI < 0x20:
+            elif MsgType == 0x01:
+                SecondByte = N_PDU.data[1]
+                FF_DL = ((FirstByte & 0x0F) << 8) | (SecondByte)
                 connection.timingoutMark = time.time() # Start N_Br
-                connection.expected_length = ((PCI & 0x0F) << 8) | N_PDU.data[1]
+                connection.expected_length = FF_DL
                 PDU_working.SDU = N_PDU.data[2:]
                 connection.done = False
                 connection.sequence = 1
                 connection.stage = Connection_Stage.SEND_FC
  
             # Consecutive Frame
-            elif 0x20 <= PCI < 0x30:
+            elif MsgType == 0x02:
                 if connection.TimeoutChecking(TimeoutType.N_Cr) is True:
-                    sequence_number = PCI & 0x0F
+                    sequence_number = FirstByte & 0x0F
  
                     if connection.sequence == sequence_number:
                         # Store data
-                        PDU_working.SDU += SDU
+                        PDU_working.SDU += N_PDU.data[1:]
                         connection.stage = Connection_Stage.RECEIVING_CF
- 
-                        # After BS times receive Consecutive Frame
                         connection.continuousCF += 1
-                        if connection.continuousCF >= connection.TP_Config.BS:
-                            connection.stage = Connection_Stage.SEND_FC
-                            connection.continuousCF = 0
  
                         # Cycle consequence index
                         connection.sequence += 1
@@ -457,8 +530,14 @@ class TP_Receive(can.Listener):
  
                         # Finish receive a completed message
                         if len(PDU_working.SDU) >= connection.expected_length:
+                            PDU_working.SDU = PDU_working.SDU[:connection.expected_length]
                             connection.done = True
                             connection.sequence = 0
+                        else:
+                            # After BS times receive Consecutive Frame
+                            if connection.continuousCF >= connection.TP_Config.BS:
+                                connection.stage = Connection_Stage.SEND_FC
+                                connection.continuousCF = 0
                 else:
                     pass    # Abort session
             else:

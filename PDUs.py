@@ -2,24 +2,27 @@ from Common import I_PDU
  
 data = """- Sometime in the early Cretaceous period of the Earth's history, hunting wasps of a certain type became bees by adopting a vegetarian diet: they began to rely more and more on the pollen of plants as a source of protein for themselves and their offspring, as an alternative to insects. In so doing, they accidentally transported pollen on their bodies to other plants of the same species, bringing about pollination. The stage was thus set for a succession of ever-closer mutual adaptations of bees and flowering plants. In particular, flowers began to reward bees for their unwitting role in their reproduction by providing richer sources of pollen and another source of nutrition, nectar.
 - Today about 15 per cent of our diet consists of crops which are pollinated by bees. The meat and other animal products we consume are ultimately derived from bee- pollinated forage crops, and account for another 15 per cent. It follows that around one third of our food is directly or indirectly dependent on the pollinating services of bees. On a global basis, the annual value of agricultural crops dependent on the pollination services of bees is estimated at £1,000 million (US$1,590 million). Much of this pollination is due to honey bees, and in monetary terms it exceeds the value of the annual honey crop by a factor of fifty.
-- But the apparently harmonious relationship between bees and plants conceals a conflict of interests. Although flowers need bees and vice versa, it pays each partner to minimise its costs and maximise its profits. This may sound like an extreme case of attributing human qualities to non-human species, but using the marketplace and the principles of double-entry book keeping as metaphors may give US some insights into what is really going on between bees and flowering plants. In the real world, both flower and bee operate in a competitive marketplace. A community of retailers, the flowers, seek to attract more or less discriminating consumers, the bees. Each flower has to juggle the costs and benefits of investing in advertising, by colour and scent, and providing rewards, nectar and pollen, clearly a species which depends on cross-pollination is on a knife-edge: it must provide sufficient nectar to attract the interest of a bee, but not enough to satisfy all of its needs in one visit. A satiated bee would return to its nest rather than visit another flower. The bee, on the other hand, is out to get the maximum amount of pollen and nectar. It must assess the quality and quantity of rewards which are on offer and juggle its energy costs so that it makes a calorific profit on each foraging trip. The apparent harmony between plants and bees is therefore not all that it seems. Instead, it is an equilibrium based on compromises between the competing interests of the protagonists."""
+- But the apparently harmonious relationship between bees and plants conceals a conflict of interests. Although flowers need bees and vice versa, it pays each partner to minimise its costs and maximise its profits. This may sound like an extreme case of attributing human qualities to non-human species, but using the marketplace and the principles of double-entry book keeping as metaphors may give US some insights into what is really going on between bees and flowering plants. In the real world, both flower and bee operate in a competitive marketplace. A community of retailers, the flowers, seek to attract more or less discriminating consumers, the bees. Each flower has to juggle the costs and benefits of investing in advertising, by colour and scent, and providing rewards, nectar and pollen, clearly a species which depends on cross-pollination is on a knife-edge: it must provide sufficient nectar to attract the interest of a bee, but not enough to satisfy all of its needs in one visit. A satiated bee would return to its nest rather than visit another flower. The bee, on the other hand, is out to get the maximum amount of pollen and nectar. It must assess the quality and quantity of rewards which are on offer and juggle its energy costs so that it makes a calorific profit on each foraging trip. The apparent harmony between plants and bees is therefore not all that it seems. Instead, it is an equilibrium based on compromises between the competing interests of the protagonists.
+"""
+ 
+data1 =""" Due to its legacy, CAN 2.0 is the most widely used protocol with a maximum payload size of eight bytes and a typical baud rate of 500 kbit/s. Classical CAN, which includes CAN 2.0A (Standard CAN) and CAN 2.0B (Extended CAN), primarily differs in identifier field lengths: CAN 2.0A uses an 11-bit identifier, while CAN 2.0B employs a 29-bit identifier. The longer identifier in CAN 2.0B allows for a greater number of unique message identifiers, which is beneficial in complex systems with many nodes and data types. However, this increase in unique message identifiers also increases frame length, which in turn reduces the maximum data rate. Additionally, the extended identifier provides finer control over message prioritization due to more available identifier values. This, however, may introduce compatibility issues; CAN 2.0B devices can generally communicate with CAN 2.0A devices, but not vice versa, due to potential errors in handling longer identifiers. High-speed CAN 2.0 supports bit rates from 40 kbit/s to 1 Mbit/s and is the basis for higher-layer protocols. In contrast, low-speed CAN 2.0 supports bit rates from 40 kbit/s to 125 kbit/s and offers fault tolerance by allowing communication to continue despite a fault in one of the two wires, with each node maintaining its own termination
+CAN FD (Flexible Data-Rate), standardized as ISO 11898-1, was developed by Bosch and released in 2012 to meet the need for increased data transfer in modern high-performance vehicles. It offers variable data rates during the transmission of a single frame, allowing the arbitration phase to occur at a lower data rate for robust communication, while the data payload is transmitted at a higher data rate to improve throughput, which is particularly useful in electrically noisy environments for better noise immunity. CAN FD also introduces a flexible data field size, increasing the maximum size from 8 bytes to 64 bytes. This flexibility allows for more efficient data transmission by reducing the number of frames needed for large data transfers, which is beneficial for applications like high-resolution sensor data or software updates."""
+ 
+# data = """- Sometime in the early Cretaceous period of the Earth's history, hunting wasps of a certain type became bees by adopting a vegetarian diet: they began and another source of nutrition, nectar."""
  
  
 PDU_App_T = [
-    I_PDU(ID = 0x88, SDU = data.encode('utf-8'), is_FD = True),
-    I_PDU(ID = 0x89, SDU = "Hello".encode('utf-8'), is_FD = True),
-    I_PDU(ID = 0x90, SDU = data.encode('utf-8'), is_FD = True),
-    I_PDU(ID = 0x91, SDU = "PC here".encode('utf-8'), is_FD = False),
-    I_PDU(ID = 0x92, SDU = data.encode('utf-8'), is_FD = True),
+    I_PDU(ID = 0x111, SDU = data.encode('utf-8'), isFD = True, Tx_DL = 20, isPadding = False),
+    I_PDU(ID = 0x333, SDU = "Hello!".encode('utf-8'), Tx_DL = 8, isFD = True),
+    I_PDU(ID = 0x222, SDU = data1.encode('utf-8'), isFD = False, Tx_DL = 8, isPadding = True, STmin = 20),
+    I_PDU(ID = 0x91, SDU = "PC here".encode('utf-8'), isFD = False, isPadding = False),
 ]
  
 PDU_App_R = [
-    I_PDU(ID = 0x88),
-    I_PDU(ID = 0x89),
-    I_PDU(ID = 0x90),
-    I_PDU(ID = 0x91),
-    I_PDU(ID = 0x92),
-    I_PDU(ID = 0x93),
-    I_PDU(ID = 0x11),
-    I_PDU(ID = 0x12)
+    I_PDU(ID = 0x444),
+    I_PDU(ID = 0x555),
+    I_PDU(ID = 0x666),
+    I_PDU(ID = 0x777),
+    I_PDU(ID = 0x888),
+    I_PDU(ID = 0x999)
 ]
