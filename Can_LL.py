@@ -1,11 +1,18 @@
-import can
-import time
-from Common import N_PDU
- 
-""" ===========================================================================================
+""" ============================================================================================
 Module              : Bus
-Brief               : This module works on bus using PYTHON-CAN api to implement
-=========================================================================================== """
+Last Modified       : September 27, 2024
+Author              : Tran Than
+Description         :
+    Manages CAN bus communication using the Python-CAN library.
+    Responsibilities include:
+        - Initializing and shutting down the CAN bus.
+        - Transmitting CAN frames.
+        - Listening for incoming CAN frames and handling callbacks.
+        - Managing the CAN notifier for asynchronous message reception.
+Notes               :
+============================================================================================ """
+import can
+from Common import N_PDU
 class Bus:
     """ Constructor """
     def __init__(self):
@@ -15,15 +22,13 @@ class Bus:
  
     """ Destructor """
     def __del__(self):
-        self.stopListen()
-        self.stopBus()
-        # print("Destructor: CanLL")
+        print("Destructor: CanLL")
  
     """ Initialize bus """
-    def init(self, interface = 'neovi', channel = 1, bitrate = 1000000, receive_own_messages = False):
+    def init(self, interface = 'neovi', channel = 1, bitrate = 500000, receive_own_messages = False):
         # Stop bus
         if self.bus is not None:
-            self.stop()
+            self.stopBus()
         try:
             self.bus = can.Bus(interface=interface, channel=channel, bitrate=bitrate, receive_own_messages = receive_own_messages)
  
@@ -42,7 +47,7 @@ class Bus:
     def send(self, N_PDU : N_PDU):
         if self.bus is None:
             print("Bus has not been initialized")
-        # print(N_PDU.ID)
+ 
         try:
             msg = can.Message(
                 arbitration_id = N_PDU.ID,
@@ -50,9 +55,9 @@ class Bus:
                 is_extended_id = N_PDU.isExtendedID,
                 is_fd = N_PDU.isFD
             )
-            print(f"transmit: {msg}")
             self.bus.send(msg)
-
+            print(f"Transmit {msg}")
+ 
         except Exception as e:
             print(f"Error send: {e}")
  
@@ -61,9 +66,9 @@ class Bus:
         self.RxHandle = callback
         if self.RxHandle is not None:
             self.notifier = can.Notifier(self.bus, [self.RxHandle])
-    
+ 
     """ Stop Listening """
     def stopListen(self):
         if self.notifier is not None:
             self.notifier.stop()
-            # print("Stop listen")
+            print("Stop listen")

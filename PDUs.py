@@ -12,10 +12,10 @@ CAN FD (Flexible Data-Rate), standardized as ISO 11898-1, was developed by Bosch
  
  
 PDU_App_T = [
-    I_PDU(ID = 0x111, SDU = data.encode('utf-8'), isFD = True, Tx_DL = 20, isPadding = False),
-    I_PDU(ID = 0x333, SDU = "Hello!".encode('utf-8'), Tx_DL = 8, isFD = True),
-    I_PDU(ID = 0x222, SDU = data1.encode('utf-8'), isFD = False, Tx_DL = 8, isPadding = True, STmin = 20),
-    I_PDU(ID = 0x91, SDU = "PC here".encode('utf-8'), isFD = False, isPadding = False),
+    I_PDU(ID = 0x444, SDU = data.encode('utf-8'), isFD = True, Tx_DL = 20, isPadding = False),
+    I_PDU(ID = 0x555, SDU = "Hello!".encode('utf-8'), Tx_DL = 8, isFD = True),
+    I_PDU(ID = 0x666, SDU = data1.encode('utf-8'), isFD = False, Tx_DL = 8, isPadding = True, STmin = 20),
+    I_PDU(ID = 0x777, SDU = "PC here".encode('utf-8'), isFD = False, isPadding = False),
 ]
  
 PDU_App_R = [
