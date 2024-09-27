@@ -15,6 +15,8 @@ This project is designed just only in experiment, mainly for testing
 ## Equipments
 - Experiment with ValueCAN 4
 
+![image](https://github.com/user-attachments/assets/0f685789-c97c-49ce-b58f-2014c1b30af8)
+
 ## Software
 - `Python 3.9`
 - `Python-Can` 
@@ -28,10 +30,17 @@ This project is designed just only in experiment, mainly for testing
 - pip install filelock
 - Driver `icsneo40.dll` (source: https://intrepidcs.com/products/software/vehicle-spy/vehicle-spy-evaluation/)
 
-## Hardware setup
-<div align="center">
-  <img src="https://github.com/user-attachments/assets/a2bc839d-06ba-4c76-993b-847e257f563c" alt="abc" style="transform: rotate(90deg);" width = "400"/>
-</div>
+## Class diagram
+
+![image](https://github.com/user-attachments/assets/30ae3e47-21f2-4c97-a529-2f436b92a03a)
+
+
+- **Can_TP:** Main module for CAN Transport Protocol (CAN TP) handling.
+- **Can_TP_Transmit:** Manages the transmission operations of the CAN Transport Protocol (CAN TP) layer.
+- **Can_TP_Receive:** Handles the reception and processing of CAN Transport Protocol (CAN TP) messages.
+- **Can_TP_Connection:** Defines configuration and connection management classes for CAN TP reception operations. These classes handle the setup and state management required for receiving CAN TP messages, including timeout configurations and connection classifications.
+- **LL_Bus** Manages CAN bus communication using the Python-CAN library.
+- **I_PDU** Presents I_PDU
 
 ## User guide
 1. I-PDU Declaration
