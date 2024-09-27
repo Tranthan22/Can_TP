@@ -137,13 +137,11 @@ class Can_TP_Transmit:
     # Send FIRST FRAME
     def transmitFF(self, I_PDU : I_PDU, connection : Can_TP_Connection):
         SDULength = I_PDU.SDULength()
-        print(SDULength)
         N_PDU = copy.deepcopy(I_PDU)
  
         # Message Frame: Type 2
         if connection.messageFrame == MessageFrame_Type.TYPE_2:
             N_PCI = [(0x01 << 4 | (SDULength >> 8)), (SDULength & 0xFF)]
-            print(N_PCI)
             # CAN FD (FF = Tx_DL bytes)
             if I_PDU.isFD is True:
                 N_SDU = I_PDU.SDU[:(I_PDU.Tx_DL - 2)]

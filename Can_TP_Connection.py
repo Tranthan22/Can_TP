@@ -77,6 +77,7 @@ class Can_TP_Connection:
                     return MessageFrame_Type.TYPE_3
             else:
                 pass
+        self.done = True
            
     # @classmethod
     # Timing process
